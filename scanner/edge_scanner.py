@@ -1,3 +1,4 @@
+
 COMMON_EDGE_FUNCTIONS = [
     "hello", "hello-world", "api", "webhook", "webhooks",
     "stripe-webhook", "stripe", "payment", "payments",
