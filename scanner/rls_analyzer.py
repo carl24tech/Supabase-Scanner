@@ -1,3 +1,4 @@
+
 POLICY_INTROSPECTION_QUERIES = [
     "pg_policies",
     "information_schema.tables",
