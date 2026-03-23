@@ -51,10 +51,10 @@ def print_findings(findings, target_url):
 ║   ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚║
 ╠══════════════════════════════════════════════════════════════╣
 ║                                                              ║
-║   🚀  CARLTECH  |  Supabase Security Scanner                 ║
-║   🔗  github.com/carl24tech/Supabase-Scanner                 ║
+║     CARLTECH  |  Supabase Security Scanner                 ║
+║     github.com/carl24tech/Supabase-Scanner                 ║
 ║                                                              ║
-║   🎯  Features: RLS Auditing | API Discovery | Auth Testing  ║
+║     Features: RLS Auditing | API Discovery | Auth Testing  ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝{RESET}
 {BOLD}Target   :{RESET} {target_url}
