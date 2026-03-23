@@ -6,6 +6,4 @@ Lol, I will Mark Down How to use this tool on Windows Poweshell (PS).. Or you ca
 
 
 
-<a href="https://github.com/carl24tech/Supabase-Scanner">
-  <img src="./assets/banner.png" alt="Supabase Scanner Banner">
-</a>
+![Supabase Security Scanner](https://files.catbox.moe/vvzkow.png)
