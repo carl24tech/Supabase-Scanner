@@ -1,3 +1,4 @@
+
 SEVERITY_WEIGHTS = {
     "CRITICAL": 40,
     "HIGH":     15,
