@@ -1,3 +1,4 @@
+
 SENSITIVE_EXTENSIONS = [
     ".env", ".sql", ".pem", ".key", ".p12", ".pfx", ".crt", ".cer",
     ".csv", ".xlsx", ".xls", ".json", ".bak", ".dump", ".tar", ".gz",
