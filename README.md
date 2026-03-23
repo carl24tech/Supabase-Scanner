@@ -1,2 +1,2 @@
 # Supabase-Scanner
-A python tool that helps you analyse your Supabase database, Scan for Risks, RLS warnings and all leakages.. Stay safe Across the internet
+Lol, I will Mark Down How to use this tool on VS Code.. Or you can type if you know !!😏
