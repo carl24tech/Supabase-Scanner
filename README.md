@@ -31,7 +31,7 @@ python scan.py
 
 1. Go to [github.com/carl24tech/Supabase-Scanner](https://github.com/carl24tech/Supabase-Scanner) and click **Fork**.
 
-2. Clone your fork:
+2. Copy and Clone your fork:
    ```bash
    git clone https://github.com/{your-github-username}/Supabase-Scanner.git
    ```
