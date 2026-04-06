@@ -1,4 +1,4 @@
-# Supabase Scanner
+# Supabase Scanner By XTR Softwares
 
 Scans a Supabase project for security misconfigurations and data leakages across tables, storage, auth, edge functions, RLS policies, IDOR, injection vectors, GraphQL, and HTTP headers. Every scan produces a risk score and saves reports to `reports/` as JSON, Markdown, and HTML.
 
