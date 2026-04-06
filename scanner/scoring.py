@@ -1,3 +1,4 @@
+from typing import List, Dict, Any, Tuple, Optional
 
 SEVERITY_WEIGHTS = {
     "CRITICAL": 40,
@@ -60,55 +61,89 @@ REMEDIATION = {
     ),
 }
 
+def normalize_severity(severity: str) -> str:
+    severity_upper = severity.upper()
+    for valid in SEVERITY_WEIGHTS.keys():
+        if valid in severity_upper:
+            return valid
+    return "INFO"
 
-def calculate_score(findings):
-    raw = sum(SEVERITY_WEIGHTS.get(f.get("severity", "INFO"), 0) for f in findings)
-    score = min(raw, MAX_SCORE)
-    return score
+def calculate_score(findings: Optional[List[Dict[str, Any]]]) -> int:
+    if not findings:
+        return 0
+    
+    raw = 0
+    for f in findings:
+        severity = f.get("severity", "INFO")
+        normalized = normalize_severity(severity)
+        weight = SEVERITY_WEIGHTS.get(normalized, 0)
+        raw += weight
+    
+    return min(raw, MAX_SCORE)
 
-
-def get_risk_band(score):
+def get_risk_band(score: int) -> Tuple[str, str, str]:
     for threshold, label, color, description in RISK_BANDS:
         if score >= threshold:
             return label, color, description
     return RISK_BANDS[-1][1], RISK_BANDS[-1][2], RISK_BANDS[-1][3]
 
-
-def generate_remediation(findings):
+def generate_remediation(findings: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    if not findings:
+        return []
+    
     hints = []
     seen = set()
-    issue_text = " ".join(f.get("issue", "").lower() for f in findings)
-
-    checks = {
-        "rls_disabled":           "row(s) readable by anonymous" in issue_text or "rls disabled" in issue_text,
-        "public_bucket":          "is public" in issue_text,
-        "long_lived_jwt":         "years away" in issue_text,
-        "open_signup":            "open signup" in issue_text,
-        "email_enumeration":      "email enumeration" in issue_text,
-        "cors_wildcard":          "cors is open" in issue_text,
-        "graphql_introspection":  "introspection is enabled" in issue_text,
-        "sensitive_columns":      "sensitive-looking columns" in issue_text,
-        "service_role_exposed":   "service_role" in issue_text and "bypasses row level security" in issue_text,
-        "missing_hsts":           "hsts not set" in issue_text,
-    }
-
-    for key, triggered in checks.items():
-        if triggered and key not in seen:
-            seen.add(key)
-            problem, fix = REMEDIATION[key]
-            hints.append({"problem": problem, "fix": fix})
-
+    
+    finding_types = []
+    for f in findings:
+        finding_type = f.get("type", "").lower()
+        issue = f.get("issue", "").lower()
+        finding_types.append(finding_type)
+        
+        if finding_type and finding_type not in seen:
+            seen.add(finding_type)
+    
+    for finding in findings:
+        issue_text = finding.get("issue", "").lower()
+        finding_type = finding.get("type", "").lower()
+        
+        checks = {
+            "rls_disabled": "rls disabled" in issue_text or "row level security" in issue_text or "readable by anonymous" in issue_text,
+            "public_bucket": "public" in issue_text and "bucket" in issue_text,
+            "long_lived_jwt": "years away" in issue_text or "expiry" in issue_text and "long" in issue_text,
+            "open_signup": "open signup" in issue_text or "sign up" in issue_text and "open" in issue_text,
+            "email_enumeration": "email enumeration" in issue_text or "email" in issue_text and "enumeration" in issue_text,
+            "cors_wildcard": "cors" in issue_text and ("wildcard" in issue_text or "open" in issue_text),
+            "graphql_introspection": "graphql" in issue_text and "introspection" in issue_text,
+            "sensitive_columns": "sensitive" in issue_text and "column" in issue_text,
+            "service_role_exposed": "service_role" in issue_text or "service role" in issue_text,
+            "missing_hsts": "hsts" in issue_text and ("missing" in issue_text or "not set" in issue_text),
+        }
+        
+        for key, triggered in checks.items():
+            if triggered and key not in seen:
+                seen.add(key)
+                if key in REMEDIATION:
+                    problem, fix = REMEDIATION[key]
+                    hints.append({"problem": problem, "fix": fix})
+    
+    if not hints and findings:
+        default_hint = {
+            "problem": "Security findings detected",
+            "fix": "Review all findings and implement appropriate security controls based on severity."
+        }
+        hints.append(default_hint)
+    
     return hints
 
-
-def print_score_card(findings):
+def print_score_card(findings: List[Dict[str, Any]]) -> None:
     score = calculate_score(findings)
     label, color, description = get_risk_band(score)
     RESET = "\033[0m"
     BOLD  = "\033[1m"
     DIM   = "\033[2m"
 
-    bar_filled = int((score / MAX_SCORE) * 40)
+    bar_filled = int((score / MAX_SCORE) * 40) if MAX_SCORE > 0 else 0
     bar = f"{color}{'█' * bar_filled}{DIM}{'░' * (40 - bar_filled)}{RESET}"
 
     print(f"\n{'─' * 70}")
@@ -124,8 +159,7 @@ def print_score_card(findings):
             print(f"  {i}. {BOLD}{hint['problem']}{RESET}")
             print(f"     {DIM}{hint['fix']}{RESET}\n")
 
-
-def score_to_dict(findings):
+def score_to_dict(findings: List[Dict[str, Any]]) -> Dict[str, Any]:
     score = calculate_score(findings)
     label, _, description = get_risk_band(score)
     return {
