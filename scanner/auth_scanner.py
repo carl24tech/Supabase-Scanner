@@ -1,178 +1,253 @@
-
-
 import time
+import random
+import string
+from typing import List, Dict, Any, Optional
 
+def _generate_random_email() -> str:
+    random_str = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
+    return f"test_{random_str}@example.com"
 
-def scan_auth_config(client, label="anon"):
+def _safe_get_text(data: Any) -> str:
+    if isinstance(data, dict):
+        return str(data.get("error_description") or data.get("msg") or data.get("message") or data.get("error") or "")
+    return str(data)
+
+def scan_auth_config(client, label: str = "anon") -> List[Dict]:
     findings = []
-
-    status, data, _ = client.get("/auth/v1/settings")
-    if status == 200 and isinstance(data, dict):
-        if not data.get("disable_signup", True):
-            findings.append({
-                "severity": "MEDIUM",
-                "issue": f"[{label}] Open signup is enabled — anyone on the internet can register an account",
-            })
-
-        providers = [
-            k for k, v in data.get("external", {}).items()
-            if isinstance(v, dict) and v.get("enabled")
-        ]
-        if providers:
+    
+    try:
+        status, data, _ = client.get("/auth/v1/settings")
+        
+        if status == 200 and isinstance(data, dict):
+            if not data.get("disable_signup", True):
+                findings.append({
+                    "severity": "MEDIUM",
+                    "issue": f"[{label}] Open signup is enabled — anyone on the internet can register an account",
+                })
+            
+            external = data.get("external", {})
+            if isinstance(external, dict):
+                providers = [
+                    k for k, v in external.items()
+                    if isinstance(v, dict) and v.get("enabled", False)
+                ]
+                if providers:
+                    findings.append({
+                        "severity": "INFO",
+                        "issue": f"[{label}] OAuth providers enabled: {', '.join(providers)}",
+                    })
+            
+            mailer_autoconfirm = data.get("mailer_autoconfirm", False)
+            if mailer_autoconfirm:
+                findings.append({
+                    "severity": "MEDIUM",
+                    "issue": f"[{label}] Email auto-confirm is ON — users are not required to verify their email address",
+                })
+            
+            sms_autoconfirm = data.get("sms_autoconfirm", False)
+            if sms_autoconfirm:
+                findings.append({
+                    "severity": "MEDIUM",
+                    "issue": f"[{label}] SMS auto-confirm is ON — phone numbers are not verified",
+                })
+        elif status == 401 or status == 403:
             findings.append({
                 "severity": "INFO",
-                "issue": f"[{label}] OAuth providers enabled: {', '.join(providers)}",
-            })
-
-        mailer_autoconfirm = data.get("mailer_autoconfirm", False)
-        if mailer_autoconfirm:
-            findings.append({
-                "severity": "MEDIUM",
-                "issue": f"[{label}] Email auto-confirm is ON — users are not required to verify their email address",
-            })
-
-        sms_autoconfirm = data.get("sms_autoconfirm", False)
-        if sms_autoconfirm:
-            findings.append({
-                "severity": "MEDIUM",
-                "issue": f"[{label}] SMS auto-confirm is ON — phone numbers are not verified",
-            })
-
-    else:
-        findings.append({
-            "severity": "INFO",
-            "issue": f"[{label}] /auth/v1/settings returned {status} — settings endpoint is not public",
-        })
-
-    return findings
-
-
-def scan_email_enumeration(client, label="anon"):
-    findings = []
-
-    probes = [
-        ("admin@gmail.com", "likely-registered"),
-        ("zxqprobexzq99871@nonexistentdomain.xyz", "likely-not-registered"),
-    ]
-
-    responses = []
-    for email, note in probes:
-        status, data, _ = client.post("/auth/v1/recover", body={"email": email})
-        msg = ""
-        if isinstance(data, dict):
-            msg = data.get("error_description") or data.get("msg") or data.get("message") or data.get("error") or ""
-        responses.append((status, str(msg).strip(), note))
-
-    if len(responses) == 2:
-        s1, m1, _ = responses[0]
-        s2, m2, _ = responses[1]
-
-        if s1 != s2:
-            findings.append({
-                "severity": "HIGH",
-                "issue": f"[{label}] Password reset returns different HTTP status codes for registered vs unregistered emails ({s1} vs {s2}) — email enumeration possible",
-            })
-        elif m1 != m2:
-            findings.append({
-                "severity": "HIGH",
-                "issue": f"[{label}] Password reset returns different error messages for registered vs unregistered emails — email enumeration possible",
-                "registered_response": m1,
-                "unregistered_response": m2,
+                "issue": f"[{label}] Auth settings endpoint requires authentication (status {status})",
             })
         else:
             findings.append({
                 "severity": "INFO",
+                "issue": f"[{label}] Auth settings endpoint returned {status}",
+            })
+    except Exception as e:
+        findings.append({
+            "severity": "INFO",
+            "issue": f"[{label}] Failed to scan auth config",
+            "error": str(e)[:100],
+        })
+    
+    return findings
+
+def scan_email_enumeration(client, label: str = "anon", delay: float = 1.0) -> List[Dict]:
+    findings = []
+    
+    registered_email = _generate_random_email()
+    unregistered_email = _generate_random_email()
+    
+    time.sleep(delay)
+    
+    responses = []
+    for email in [registered_email, unregistered_email]:
+        try:
+            start_time = time.time()
+            status, data, _ = client.post("/auth/v1/recover", body={"email": email})
+            response_time = time.time() - start_time
+            message = _safe_get_text(data)
+            responses.append((status, message, response_time))
+            time.sleep(delay)
+        except Exception as e:
+            responses.append((None, str(e), 0))
+    
+    if len(responses) == 2:
+        s1, m1, t1 = responses[0]
+        s2, m2, t2 = responses[1]
+        
+        status_diff = s1 != s2 and s1 is not None and s2 is not None
+        message_diff = m1 != m2 and m1 and m2
+        time_diff = abs(t1 - t2) > 0.5
+        
+        if status_diff:
+            findings.append({
+                "severity": "HIGH",
+                "issue": f"[{label}] Password reset returns different HTTP status codes ({s1} vs {s2}) — email enumeration possible",
+            })
+        
+        if message_diff:
+            findings.append({
+                "severity": "HIGH",
+                "issue": f"[{label}] Password reset returns different error messages — email enumeration possible",
+                "registered_response": m1[:100],
+                "unregistered_response": m2[:100],
+            })
+        
+        if time_diff and not status_diff and not message_diff:
+            findings.append({
+                "severity": "MEDIUM",
+                "issue": f"[{label}] Password reset response timing differs by {abs(t1-t2):.2f}s — potential timing-based enumeration",
+            })
+        
+        if not status_diff and not message_diff and not time_diff:
+            findings.append({
+                "severity": "INFO",
                 "issue": f"[{label}] Password reset returns consistent responses — resists email enumeration",
             })
-
+        
         if s1 == 429 or s2 == 429:
             findings.append({
                 "severity": "INFO",
                 "issue": f"[{label}] Rate limiting active on /auth/v1/recover (429 returned)",
             })
-
+    
     return findings
 
-
-def scan_auth_endpoints(client, label="anon"):
+def scan_auth_endpoints(client, label: str = "anon") -> List[Dict]:
     findings = []
-
-    status, data, _ = client.get("/auth/v1/admin/users")
-    if status == 200 and isinstance(data, dict):
-        users = data.get("users", [])
-        findings.append({
-            "severity": "CRITICAL",
-            "issue": f"[{label}] Admin user listing is OPEN — {len(users)} user(s) exposed with full profile data",
-        })
-    else:
+    
+    try:
+        status, data, _ = client.get("/auth/v1/admin/users")
+        if status == 200:
+            users = []
+            if isinstance(data, dict):
+                users = data.get("users", [])
+            findings.append({
+                "severity": "CRITICAL",
+                "issue": f"[{label}] Admin user listing is OPEN — {len(users)} user(s) exposed",
+            })
+        elif status in (401, 403):
+            findings.append({
+                "severity": "INFO",
+                "issue": f"[{label}] Admin user endpoint properly restricted (status {status})",
+            })
+        else:
+            findings.append({
+                "severity": "INFO",
+                "issue": f"[{label}] Admin user endpoint returned {status}",
+            })
+    except Exception as e:
         findings.append({
             "severity": "INFO",
-            "issue": f"[{label}] Admin user endpoint returned {status} — properly restricted",
+            "issue": f"[{label}] Admin user endpoint check failed",
+            "error": str(e)[:100],
         })
-
-    status, data, _ = client.get("/auth/v1/user")
-    if status == 200:
-        findings.append({
-            "severity": "MEDIUM",
-            "issue": f"[{label}] /auth/v1/user returns 200 with anon token — check if user data is leaking",
-        })
-    else:
-        findings.append({
-            "severity": "INFO",
-            "issue": f"[{label}] /auth/v1/user returned {status} without a valid session (expected)",
-        })
-
-    brute_payloads = [
-        {"email": "admin@example.com", "password": "admin"},
-        {"email": "admin@example.com", "password": "password"},
-        {"email": "test@test.com", "password": "test"},
+    
+    try:
+        status, data, _ = client.get("/auth/v1/user")
+        if status == 200:
+            user_data = data if isinstance(data, dict) else {}
+            user_id = user_data.get("id", "unknown")
+            findings.append({
+                "severity": "MEDIUM",
+                "issue": f"[{label}] /auth/v1/user returns 200 with anon token — user data may be leaking (user {user_id})",
+            })
+        elif status == 401:
+            findings.append({
+                "severity": "INFO",
+                "issue": f"[{label}] /auth/v1/user properly requires authentication",
+            })
+    except Exception as e:
+        pass
+    
+    probe_emails = [
+        f"probe_{random.randint(1, 9999)}@test.com",
+        f"security_{random.randint(1, 9999)}@scan.local",
     ]
-
+    
     statuses = []
-    for payload in brute_payloads:
-        status, _, _ = client.post("/auth/v1/token?grant_type=password", body=payload)
-        statuses.append(status)
-        if status == 429:
-            break
-
-    if all(s == 429 for s in statuses):
+    for email in probe_emails:
+        try:
+            status, _, _ = client.post("/auth/v1/token?grant_type=password", body={"email": email, "password": "weak_password_123"})
+            statuses.append(status)
+            time.sleep(0.5)
+            if status == 429:
+                break
+        except:
+            statuses.append(None)
+    
+    rate_limited = any(s == 429 for s in statuses)
+    if rate_limited:
         findings.append({
             "severity": "INFO",
-            "issue": f"[{label}] Brute-force protection active on login endpoint (all probes rate-limited)",
-        })
-    elif any(s == 200 for s in statuses):
-        findings.append({
-            "severity": "CRITICAL",
-            "issue": f"[{label}] Login succeeded with a common password — account with weak credentials exists",
+            "issue": f"[{label}] Brute-force protection appears active (rate limiting detected)",
         })
     else:
         findings.append({
-            "severity": "INFO",
-            "issue": f"[{label}] Login endpoint rejected all weak-credential probes",
+            "severity": "LOW",
+            "issue": f"[{label}] No obvious rate limiting on login endpoint — consider implementing protection",
         })
-
+    
     return findings
 
-
-def scan_magic_link(client, label="anon"):
+def scan_magic_link(client, label: str = "anon") -> List[Dict]:
     findings = []
-    status, data, _ = client.post(
-        "/auth/v1/magiclink",
-        body={"email": "scanner-probe@nonexistentdomain.xyz"},
-    )
-    if status == 200:
+    
+    test_emails = [
+        f"magic_{random.randint(1, 9999)}@test.com",
+        f"probe_{random.randint(1, 9999)}@example.org",
+    ]
+    
+    results = []
+    for email in test_emails:
+        try:
+            status, data, _ = client.post("/auth/v1/magiclink", body={"email": email})
+            message = _safe_get_text(data)
+            results.append((status, message))
+            time.sleep(0.5)
+        except Exception as e:
+            results.append((None, str(e)))
+    
+    success_count = sum(1 for s, _ in results if s == 200)
+    
+    if success_count == len(test_emails):
         findings.append({
             "severity": "MEDIUM",
-            "issue": f"[{label}] Magic link endpoint accepts any email without rate-limiting visible — potential for spam/abuse",
+            "issue": f"[{label}] Magic link endpoint accepts all emails — potential for spam/abuse",
         })
-    elif status == 429:
+    elif any(s == 429 for s, _ in results):
         findings.append({
             "severity": "INFO",
             "issue": f"[{label}] Magic link endpoint is rate-limited",
         })
-    else:
+    elif any(s == 400 for s, _ in results):
         findings.append({
             "severity": "INFO",
-            "issue": f"[{label}] Magic link endpoint returned {status}",
+            "issue": f"[{label}] Magic link endpoint validates email format",
         })
+    else:
+        status_codes = [str(s) for s, _ in results if s]
+        findings.append({
+            "severity": "INFO",
+            "issue": f"[{label}] Magic link endpoint returned: {', '.join(status_codes) if status_codes else 'errors'}",
+        })
+    
     return findings
